@@ -41,6 +41,7 @@ bool pixel3ON = false;
 bool pixel4ON = true;
 bool pixel4Handeled = false;
 int pixel2RateCounter = 0;
+bool key1_waiting_for_double = false;
 volatile uint32_t msCount = 0;
 volatile const flash_params *params = (flash_params*) FLASH_PARAMS_ADDR;
 
@@ -115,7 +116,7 @@ void updateMainButton(uint32_t port_in, button *key) {
     key->pressCount = 0;
     key->releaseCount++;
 
-    if(key->releaseCount >= params->hyst_on_limit) {
+    if(key->releaseCount >= params->hyst_off_min) {
       if(key->on) {
         key->on = false;
         key->click_time = msCount-key->last_clicked;
@@ -210,14 +211,24 @@ void logic(button *key1, button *key2) {
   }
 
   if(!key1->on && !pixel4Handeled) {
-    if(key1->double_clicked && key1->click_time > 0) {
+    if (key1->double_clicked && key1->click_time > 0) {
       pixel3(key1);
       key1->click_time = 0;
       key1->double_clicked = false;
+      key1_waiting_for_double = false;
     }
-    else if(key1->click_time < KEY_CLICK_LIMIT && key1->click_time > DOUBLE_CLICK) {
+
+    else if (!key1_waiting_for_double && key1->click_time > DOUBLE_CLICK && key1->click_time < KEY_CLICK_LIMIT) {
+      key1_waiting_for_double = true;
+      key1->released_at = msCount;
+    }
+
+    else if (key1_waiting_for_double) {
+      if (msCount - key1->released_at >= DOUBLE_CLICK && !key1->double_clicked) {
         pixel1(key1);
+        key1_waiting_for_double = false;
         key1->click_time = 0;
+      }
     }
     else if (key1->click_time >= KEY_CLICK_LIMIT*2) {
       displayErase();
@@ -240,19 +251,9 @@ void logic(button *key1, button *key2) {
         key2->click_time = 0;
         pixel2Flicker = false;
     }
-    if(key2->click_time > KEY2_HOLD_DOWN_TIME) {
-      if(pixel2Flicker){// if the pixel is on after turning it off then this will turn the pixel off
-        pixel2Flickering = true;
-        pixel2(key2, true);
-      }
-
-      pixel2Flicker = !pixel2Flicker;
-      pixel2RateCounter = 0;
-      key2->click_time = 0;
-      pixel2ON = false;
-    }
   }
-  if(pixel2Flicker){
+
+  if(key2->on && (msCount-key2->last_clicked) > KEY2_HOLD_DOWN_TIME) {
     if(pixel2RateCounter%PIXEL2RATE == 0) {
       pixel2(key2, true);
       pixel2RateCounter = 0;
